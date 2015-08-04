@@ -2,6 +2,20 @@ local ffi = require 'ffi'
 local C = loadcaffe.C
 
 
+-- given a caffe datum byte array, this function will return the image
+-- and its metadata
+-- At the moment it cannot handle encoded images (datum.encoded == true)
+loadcaffe.parseCaffeLmdbDatum = function(byteArray)
+
+    local img = torch.FloatTensor()
+    local label = torch.FloatTensor(1)
+
+    C.parseCaffeLmdbDatumEntry( byteArray:cdata(), img:cdata(), label:cdata())
+
+    return img,label
+end
+
+
 loadcaffe.load = function(prototxt_name, binary_name, backend)
   local backend = backend or 'nn'
   local handle = ffi.new('void*[1]')

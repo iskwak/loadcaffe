@@ -36,6 +36,7 @@ void loadModule(const void** handle, const char* name, THFloatTensor* weight, TH
 void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias);
 void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias);
 void destroyBinary(void** handle);
+void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label);
 }
 
 
@@ -639,4 +640,54 @@ void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloat
       memcpy(THFloatTensor_data(bias), layer.blobs(1).data().data(), sizeof(float)*layer.blobs(1).data_size());
     }
   }
+}
+
+
+
+void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label) {
+  caffe::Datum datum;
+
+  // convert the byte array to an stl string. This seems to help
+  // deal with null terminating characters that the image may have.
+  void* data_ptr = (void*)tensor_datum->storage->data;
+  //std::string data(data_ptr, data_ptr + tensor_datum->storage->size);
+
+  // actually parse the data from the byte array
+  //datum.ParseFromString(data);
+  datum.ParseFromArray(data_ptr, tensor_datum->storage->size);
+
+  int datum_height = datum.height();
+  int datum_width = datum.width();
+  int datum_channels = datum.channels();
+  int size = datum_height*datum_width*datum_channels;
+  // assume that this function is being called through the lua
+  // parseCaffeLmdbDatum and label is properly allocated
+  float* label_data = THFloatTensor_data(label);
+  label_data[0] = datum.label();
+
+  // datum.data() is a string, but we want to interpret the data as
+  // unsigned chars which will be converted to floats
+  std::vector<unsigned char> vec_data(
+      datum.data().c_str(), datum.data().c_str() + size);
+
+  // prepare the tensor image to be filled
+  THFloatTensor_resize3d(
+      img, 
+      datum.channels(),
+      datum.height(),
+      datum.width());
+  float *input_data = THFloatTensor_data(img);
+
+  for(int h = 0; h < datum_height; ++h) {
+    for(int w = 0; w < datum_width; ++w) {
+      for(int c = 0; c < datum_channels; ++c) {
+        // opencv (and therefore caffe) stores images in
+        // BGR format. Torch expects RGB.
+        int datum_index = (c * datum_height + h) * datum_width + w;
+        int idx = (2-c)*(datum_height*datum_width) + h*datum_width + w;
+
+        input_data[idx] = (float)( vec_data[datum_index] );
+      }
+    }
+  } // loop over the image
 }
