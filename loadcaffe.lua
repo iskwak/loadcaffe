@@ -40,12 +40,19 @@ loadcaffe.load = function(prototxt_name, binary_name, backend)
     if item[2].weight then
       local w = torch.FloatTensor()
       local bias = torch.FloatTensor()
-      C.loadModule(handle, item[1], w:cdata(), bias:cdata())
+      local gw = torch.FloatTensor()
+      local gbias = torch.FloatTensor()
+      C.loadModule(handle, item[1], w:cdata(), bias:cdata(),
+          gw:cdata(), gbias:cdata())
       if backend == 'ccn2' then
         w = w:permute(2,3,4,1)
       end
       item[2].weight:copy(w)
       item[2].bias:copy(bias)
+      if gw:size():size() > 0 then
+        item[2].gradWeight:copy(gw)
+        item[2].gradBias:copy(gbias)
+      end
     end
     net:add(item[2])
   end

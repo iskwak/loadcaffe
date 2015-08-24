@@ -32,9 +32,9 @@ void loadBinary(void** handle, const char* prototxt_name, const char* binary_nam
 void convertProtoToLua(void** handle, const char* lua_name, const char* cuda_package);
 void convertProtoToLuaV1(const caffe::NetParameter &netparam, const char* lua_name, const char* cuda_package);
 void convertProtoToLuaV2(const caffe::NetParameter &netparam, const char* lua_name, const char* cuda_package);
-void loadModule(const void** handle, const char* name, THFloatTensor* weight, THFloatTensor* bias);
-void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias);
-void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias);
+void loadModule(const void** handle, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias);
+void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias);
+void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias);
 void destroyBinary(void** handle);
 void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label);
 }
@@ -217,7 +217,8 @@ void convertProtoToLuaV1(const caffe::NetParameter &netparam, const char* lua_na
             break;
           case NN:
             if(param.pool() == caffe::PoolingParameter::MAX)
-              sprintf(buf, "nn.SpatialMaxPooling(%d, %d, %d, %d, %d, %d):ceil()", kW, kH, dW, dH, padW, padH);
+              //sprintf(buf, "nn.SpatialMaxPooling(%d, %d, %d, %d, %d, %d):ceil()", kW, kH, dW, dH, padW, padH);
+              sprintf(buf, "nn.SpatialMaxPooling(%d, %d, %d, %d, %d, %d)", kW, kH, dW, dH, padW, padH);
             else if(param.pool() == caffe::PoolingParameter::AVE)
               sprintf(buf, "inn.SpatialAveragePooling(%d, %d, %d, %d)", kW, kH, dW, dH); // padding is not supported yet
             else if(param.pool() == caffe::PoolingParameter::STOCHASTIC)
@@ -571,7 +572,7 @@ void destroyBinary(void** handle)
   delete netparam2;
 }
 
-void loadModule(const void** handle, const char* name, THFloatTensor* weight, THFloatTensor* bias)
+void loadModule(const void** handle, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias)
 {
   if(handle == NULL)
   {
@@ -582,13 +583,13 @@ void loadModule(const void** handle, const char* name, THFloatTensor* weight, TH
   const caffe::NetParameter* netparam = (const caffe::NetParameter*)handle[1];
 
   if (netparam->layers_size() > 0)
-      loadModuleV1(netparam, name, weight, bias);
+      loadModuleV1(netparam, name, weight, bias, gradWeight, gradBias);
   else
-      loadModuleV2(netparam, name, weight, bias);
+      loadModuleV2(netparam, name, weight, bias, gradWeight, gradBias);
 }
 
 
-void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias)
+void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias)
 {
   int n = netparam->layers_size();
   for(int i=0; i<n; ++i)
@@ -605,14 +606,20 @@ void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloat
       THFloatTensor_resize4d(weight, nOutputPlane, nInputPlane, kW, kH);
       memcpy(THFloatTensor_data(weight), layer.blobs(0).data().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
 
+      THFloatTensor_resize4d(gradWeight, nOutputPlane, nInputPlane, kW, kH);
+      memcpy(THFloatTensor_data(gradWeight), layer.blobs(0).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+
       THFloatTensor_resize1d(bias, layer.blobs(1).data_size());
       memcpy(THFloatTensor_data(bias), layer.blobs(1).data().data(), sizeof(float)*layer.blobs(1).data_size());
+
+      THFloatTensor_resize1d(gradBias, layer.blobs(1).data_size());
+      memcpy(THFloatTensor_data(gradBias), layer.blobs(1).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
     }
   }
 }
 
 
-void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias)
+void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias)
 {
   int n = netparam->layer_size();
   for(int i=0; i<n; ++i)
@@ -629,15 +636,30 @@ void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloat
         printf("%s: %d %d %d %d\n", name, 1, 1, nInputPlane, nOutputPlane);
         THFloatTensor_resize4d(weight, 1, 1, nInputPlane, nOutputPlane);
         memcpy(THFloatTensor_data(weight), layer.blobs(0).data().data(), sizeof(float)*nOutputPlane*nInputPlane);
+
+        if(layer.blobs(0).diff_size() == layer.blobs(0).data_size()) {
+          THFloatTensor_resize4d(gradWeight, 1, 1, nInputPlane, nOutputPlane);
+          memcpy(THFloatTensor_data(gradWeight), layer.blobs(0).diff().data(), sizeof(float)*nOutputPlane*nInputPlane);
+        }
       }
       else
       {
         printf("%s: %d %d %d %d\n", name, nOutputPlane, nInputPlane, kW, kH);
         THFloatTensor_resize4d(weight, nOutputPlane, nInputPlane, kW, kH);
         memcpy(THFloatTensor_data(weight), layer.blobs(0).data().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+
+        if(layer.blobs(0).diff_size() == layer.blobs(0).data_size()) {
+          THFloatTensor_resize4d(gradWeight, nOutputPlane, nInputPlane, kW, kH);
+          memcpy(THFloatTensor_data(gradWeight), layer.blobs(0).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+        }
       }
       THFloatTensor_resize1d(bias, layer.blobs(1).data_size());
       memcpy(THFloatTensor_data(bias), layer.blobs(1).data().data(), sizeof(float)*layer.blobs(1).data_size());
+
+      if(layer.blobs(0).diff_size() == layer.blobs(0).data_size()) {
+        THFloatTensor_resize1d(gradBias, layer.blobs(1).diff_size());
+        memcpy(THFloatTensor_data(gradBias), layer.blobs(1).diff().data(), sizeof(float)*layer.blobs(1).data_size());
+      }
     }
   }
 }
@@ -650,11 +672,10 @@ void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, TH
   // convert the byte array to an stl string. This seems to help
   // deal with null terminating characters that the image may have.
   void* data_ptr = (void*)tensor_datum->storage->data;
-  //std::string data(data_ptr, data_ptr + tensor_datum->storage->size);
 
   // actually parse the data from the byte array
-  //datum.ParseFromString(data);
   datum.ParseFromArray(data_ptr, tensor_datum->storage->size);
+
 
   int datum_height = datum.height();
   int datum_width = datum.width();
@@ -673,18 +694,28 @@ void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, TH
   // prepare the tensor image to be filled
   THFloatTensor_resize3d(
       img, 
-      datum.channels(),
-      datum.height(),
-      datum.width());
+      datum_channels,
+      datum_height,
+      datum_width);
   float *input_data = THFloatTensor_data(img);
+
+  // torch expects images in rgb, but the lmdb stores images in bgr
+  // order (this is because of opencv). Take note of this for grayscale
+  // vs color images
+  int channel_offset = 0;
+  if(datum_channels == 3) {
+    channel_offset = 2;
+  }
 
   for(int h = 0; h < datum_height; ++h) {
     for(int w = 0; w < datum_width; ++w) {
       for(int c = 0; c < datum_channels; ++c) {
-        // opencv (and therefore caffe) stores images in
-        // BGR format. Torch expects RGB.
         int datum_index = (c * datum_height + h) * datum_width + w;
-        int idx = (2-c)*(datum_height*datum_width) + h*datum_width + w;
+        // opencv (and therefore caffe) stores images in
+        // BGR format. Torch expects RGB. channel_offset is set before
+        // the loop. If this image is grayscale, c is always equal to
+        // 0 and the offset is also 0.
+        int idx = (channel_offset-c)*(datum_height*datum_width) + h*datum_width + w;
 
         input_data[idx] = (float)( vec_data[datum_index] );
       }
