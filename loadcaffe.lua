@@ -5,12 +5,12 @@ local C = loadcaffe.C
 -- given a caffe datum byte array, this function will return the image
 -- and its metadata
 -- At the moment it cannot handle encoded images (datum.encoded == true)
-loadcaffe.parseCaffeLmdbDatum = function(byteArray)
+loadcaffe.parseCaffeDatum = function(byteArray)
 
     local img = torch.FloatTensor()
     local label = torch.FloatTensor(1)
 
-    C.parseCaffeLmdbDatumEntry( byteArray:cdata(), img:cdata(), label:cdata())
+    C.parseCaffeDatumEntry( byteArray:cdata(), img:cdata(), label:cdata())
 
     return img,label
 end

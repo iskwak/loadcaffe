@@ -36,7 +36,7 @@ void loadModule(const void** handle, const char* name, THFloatTensor* weight, TH
 void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias);
 void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloatTensor* weight, THFloatTensor* bias, THFloatTensor* gradWeight, THFloatTensor* gradBias);
 void destroyBinary(void** handle);
-void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label);
+void parseCaffeDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label);
 }
 
 
@@ -666,7 +666,7 @@ void loadModuleV2(const caffe::NetParameter* netparam, const char* name, THFloat
 
 
 
-void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label) {
+void parseCaffeDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, THFloatTensor* label) {
   caffe::Datum datum;
 
   // convert the byte array to an stl string. This seems to help
@@ -711,11 +711,20 @@ void parseCaffeLmdbDatumEntry(THByteTensor* tensor_datum, THFloatTensor* img, TH
     for(int w = 0; w < datum_width; ++w) {
       for(int c = 0; c < datum_channels; ++c) {
         int datum_index = (c * datum_height + h) * datum_width + w;
-        // opencv (and therefore caffe) stores images in
-        // BGR format. Torch expects RGB. channel_offset is set before
-        // the loop. If this image is grayscale, c is always equal to
-        // 0 and the offset is also 0.
-        int idx = (channel_offset-c)*(datum_height*datum_width) + h*datum_width + w;
+        // // opencv (and therefore caffe) stores images in
+        // // BGR format. Torch expects RGB. channel_offset is set before
+        // // the loop. If this image is grayscale, c is always equal to
+        // // 0 and the offset is also 0.
+        // int idx = (channel_offset-c)*(datum_height*datum_width) + h*datum_width + w;
+
+        // input_data[idx] = (float)( vec_data[datum_index] );
+        
+        // Turns out, if we are using an lmdb from caffe, we maybe using
+        // a model from caffe. The caffe models will also expect the
+        // images to be in bgr order. So store the image in wrong order.
+        // For training it is problaby faster to have minor
+        // inconvience.
+        int idx = c*(datum_height*datum_width) + h*datum_width + w;
 
         input_data[idx] = (float)( vec_data[datum_index] );
       }
