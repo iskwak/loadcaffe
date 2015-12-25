@@ -606,14 +606,18 @@ void loadModuleV1(const caffe::NetParameter* netparam, const char* name, THFloat
       THFloatTensor_resize4d(weight, nOutputPlane, nInputPlane, kW, kH);
       memcpy(THFloatTensor_data(weight), layer.blobs(0).data().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
 
-      THFloatTensor_resize4d(gradWeight, nOutputPlane, nInputPlane, kW, kH);
-      memcpy(THFloatTensor_data(gradWeight), layer.blobs(0).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+      if(layer.blobs(0).diff_size() == layer.blobs(0).data_size()) {
+        THFloatTensor_resize4d(gradWeight, nOutputPlane, nInputPlane, kW, kH);
+        memcpy(THFloatTensor_data(gradWeight), layer.blobs(0).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+      }
 
       THFloatTensor_resize1d(bias, layer.blobs(1).data_size());
       memcpy(THFloatTensor_data(bias), layer.blobs(1).data().data(), sizeof(float)*layer.blobs(1).data_size());
 
-      THFloatTensor_resize1d(gradBias, layer.blobs(1).data_size());
-      memcpy(THFloatTensor_data(gradBias), layer.blobs(1).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+      if(layer.blobs(0).diff_size() == layer.blobs(0).data_size()) {
+        THFloatTensor_resize1d(gradBias, layer.blobs(1).data_size());
+        memcpy(THFloatTensor_data(gradBias), layer.blobs(1).diff().data(), sizeof(float)*nOutputPlane*nInputPlane*kW*kH);
+      }
     }
   }
 }
